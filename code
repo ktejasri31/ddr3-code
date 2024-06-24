@@ -1,1 +1,100 @@
+// Code your testbench here
+// or browse Examples
+module ddr3_model (
+  input logic clk,
+  input logic reset,
+  input logic cs, // Chip select
+  input logic ras, // Row Address Strobe
+  input logic cas, // Column Address Strobe
+  input logic we, // Write Enable
+  input logic [15:0] addr, // Address bus
+  input logic [2:0] bank, // Bank address
+  output reg [15:0] dq // Data bus
+);
 
+  // Define state variables
+  typedef enum logic [1:0] {
+    IDLE,
+    ACTIVE,
+    READ,
+    WRITE
+  } state_t;
+
+  state_t current_state, next_state;
+
+  // Memory storage
+  logic [15:0] memory [0:65535][0:7]; // 64K locations per bank, 8 banks
+
+  // Timing parameters
+  int tCL, tRCD, tRP;
+  int activate_time, precharge_time, cas_latency_time;
+
+  // Command decoding
+  always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+      current_state <= IDLE;
+    end else begin
+      current_state <= next_state;
+    end
+  end
+
+  always_comb begin
+    next_state = current_state;
+    case (current_state)
+      IDLE: begin
+        if (cs && !ras && !cas && we) begin
+          next_state = ACTIVE;
+          activate_time = $time;
+        end
+      end
+      ACTIVE: begin
+        if ($time - activate_time >= tRCD) begin
+          if (cs && !ras && cas && !we) begin
+            next_state = READ;
+            cas_latency_time = $time;
+          end else if (cs && !ras && cas && we) begin
+            next_state = WRITE;
+            cas_latency_time = $time;
+          end else if (cs && ras && !cas && we) begin
+            next_state = IDLE;
+            precharge_time = $time;
+          end
+        end
+      end
+      READ: begin
+        if ($time - cas_latency_time >= tCL) begin
+          // Read operation
+          dq = memory[addr][bank];
+          next_state = IDLE;
+        end
+      end
+      WRITE: begin
+        if ($time - cas_latency_time >= tCL) begin
+          // Write operation
+          memory[addr][bank] = dq;
+          next_state = IDLE;
+        end
+      end
+    endcase
+  end
+
+  // Precharge logic
+  always_ff @(posedge clk or posedge reset) begin
+    if (reset) begin
+      // Initialize timing parameters
+      tCL = 2;
+      tRCD = 3;
+      tRP = 3;
+    end else begin
+      if (current_state == IDLE && $time - precharge_time >= tRP) begin
+        // Precharge complete
+      end
+    end
+  end
+  initial begin
+    $dumpfile("dump.vcd");
+    $dumpvars;
+    //additional code here
+  end
+
+endmodule
